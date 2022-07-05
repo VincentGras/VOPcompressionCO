@@ -25,19 +25,21 @@ evalSARReal = @(Q,V) max(max(reshape(pagemtimes(V, 'transpose', pagemtimes(Q, V)
 parfor i = 1:N
     
     QtR = CHtoRS(Q(:,:,i));
+    QtR = 0.5*(QtR+QtR');
     
     if (size(Qvop, 3)==1)
         
-        [eigV, eigD] = eig(QtR-QvopR);
-        eigD = real(diag(eigD));
+        [eigV, eigD] = eig(QtR-QvopR, 'vector');
+        eigD = real(eigD);
         [~, k] = max(eigD);
-        VR = eigV(:,k);
+        VR = real(eigV(:,k));
         
     else
         
-        [eigV, eigD] = eig(QtR);
-        [~, k] = max(real(diag(eigD)));
-        V0R = eigV(:,k);
+        [eigV, eigD] = eig(QtR, 'vector');
+        eigD = real(eigD);
+        [~, k] = max(eigD);
+        V0R = real(eigV(:,k));
         C = max(evalSARReal(QvopR, V0R));
         V0R = 0.5*V0R / (sqrt(C)+eps);
         
@@ -49,9 +51,9 @@ parfor i = 1:N
     V(:,i) = VR(1:Nc) + 1i * VR(Nc+1:2*Nc);
     R(i) = evalSARReal(QtR,VR)./evalSARReal(QvopR,VR);
     
-%     if (mod(i,100)== 0)
-%         fprintf('parfor loop : %d / %d; %f\n', i, N, R(i));
-%     end
+    if (mod(i,1000)== 0)
+        fprintf('parfor loop : %d / %d; %f\n', i, N, R(i));
+    end
     
     
 end
