@@ -4,13 +4,13 @@ Qm = 0.004 * eye(8);
 
 %% test computeVOP_CO
 
-[Qvop1, c1] = computeVOP_CO(Q10g, Qm);
+[c1, Qvop1] = computeVOP_CO(Q10g, Qm);
 R1 = testQmatrixDomination_CO(Q10g, Qvop1);
 max(R1)
 
 %% test computeVOP_iCO
 
-[Qvop2, c2] = computeVOP_iCO(Q10g, Qm, 5, 0.8);
+[c2, Qvop2] = computeVOP_iCO(Q10g, Qm, 5, 0.8);
 R2 = testQmatrixDomination_CO(Q10g, Qvop2);
 max(R2)
 

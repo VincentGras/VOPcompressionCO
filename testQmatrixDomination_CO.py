@@ -7,78 +7,66 @@ Created on Fri Jun 17 16:14:52 2022
 import numpy as np
 import nlopt
 
-def testQmatrixDomination_CO(Q, Qvop):
+def testQmatrixDomination_CO(Q, lVOP):
 
     # Test if Q <= Qvop (combined domination)
     # input :
-    #    Q10g : NcxNxN ndarray   the 10g-SAR matrices
-    #    Qvop : NcxNcxNvop VOPs 
+    #    Q10g : NcxNc Hermitian matric 
+    #    Qvop : list of Nvop NcxNc Hermitian matrices
     # Output :
-    #    R       1xN real>0      max ((V^H Q V)/(V^H Qvop V))
+    #    R       N real>0      max ((V^H Q V)/(V^H Qvop V))
     #    V       NcxN complex    argmax ((V^H Q V)/(V^H Qvop V))
 
     
-    N = 1;
-    if (Q.ndim>2) :
-        N = Q.shape[2];
-            
-    Nc = Qvop.shape[0];
+    Nvop = len(lVOP);            
+    Nc = Q.shape[0];
     
-    V = np.zeros((Nc, N),dtype=complex);
-    R = np.zeros(N);
+    for Qvop in lVOP:
+        assert Qvop.ndim == 2 and Qvop.shape[0]==Nc and Qvop.shape[1]==Nc, 'Bad list of VOP (shape)'
     
-    # complex 8*8 vers real 16x16 car nlopt ne travaille que sur des réels
+    
+    # Convert to real symetric matrices
     CHtoRS = lambda Q: np.vstack((np.hstack((np.real(Q), -np.imag(Q))), np.hstack((np.imag(Q), np.real(Q)))));
     
-    Nvop = 1
-    QvopR = CHtoRS(Qvop);
-        
-    if (QvopR.ndim>2):
-        Nvop=QvopR.shape[2];
+    QvopR = [ CHtoRS(Qvop) for Qvop in lVOP];
+    QR = CHtoRS(Q);
     
-    if (Nvop == 1 and QvopR.ndim>2):
-        QvopR = QvopR.reshape((2*Nc,2*Nc));    
-    
-    if Q.ndim<3:
-        QR = CHtoRS(Q);
-    
-    for i in range(0,N) :
+    SAR = lambda Qvop,V: V.transpose() @ Qvop @ V;
         
-        if Q.ndim>2 :
-            QR = CHtoRS(Q[:,:,i]);
+    if  Nvop == 1:
+            
+        # in this case do an eignevalue analysis of QR-QvopR
+        # and look for the maximum eigenvalue
+        # If that eigenvalue is negative then QR<=QvopR and R[i] will be < 1
+         
+        H = QR-QvopR[0];
+        eigW,eigV = np.linalg.eigh(H);
+        VR = eigV[:,2*Nc-1]; # vector corresponding to the max eigenvalue
         
-        if Nvop == 1:
+    else:
             
-            # in this case do an eignevalue analysis of QR-QvopR
-            # and look for the maximum eigenvalue
-            # If that eigenvalue is negative then QR<=QvopR and R[i] will be < 1
-             
-            H = QR-QvopR;
-            eigW,eigV = np.linalg.eigh(H);
-            VR = eigV[:,2*Nc-1]; # vector corresponding to the max eigenvalue
-            
-        else:
-            
-            # In this case run a convex optimization
-            
-            V0R = np.zeros((2*Nc));
-            V0R[0] = 1;
-            C = np.max(evalSAR(QvopR, V0R));
-            V0R *= (1.0 / np.sqrt(C)) ;
-            
-            # prepare nlopt     
-            opt = nlopt.opt(nlopt.LD_MMA , 2*Nc)
-            opt.set_min_objective(lambda x,grad: objfun(QR, x, grad))
-            opt.add_inequality_mconstraint(lambda res,x,grad: VopConstr(QvopR, res, x, grad), 1e-8*np.ones(Nvop))
-            opt.set_xtol_rel(1e-6)
-            opt.set_maxeval(200)
-            
-            # find minimizer
-            VR = opt.optimize(V0R)
+        # In this case run a convex optimization
         
-        # Store solution of the problem  max ((V^H Q V)/(V^H Qvop V))
-        R[i] = evalSAR(QR,VR) / evalSAR(QvopR,VR);
-        V[:,i] = VR[0:Nc] + 1j * VR[Nc:2*Nc];
+        V0R = np.zeros((2*Nc));
+        V0R[0] = 1;
+        eigW,eigV = np.linalg.eigh(QR);
+        V0R = eigV[:,2*Nc-1];
+        C = max([SAR(Qvop,V0R) for Qvop in lVOP]);
+        V0R *= 0.5 / (np.sqrt(max(0,C))+1e-9);
+        
+        # prepare nlopt     
+        opt = nlopt.opt(nlopt.LD_MMA , 2*Nc)
+        opt.set_min_objective(lambda x,grad: objfun(QR, x, grad))
+        opt.add_inequality_mconstraint(lambda res,x,grad: constrfun(QvopR, res, x, grad), 1e-8*np.ones(Nvop))
+        opt.set_xtol_rel(1e-6)
+        opt.set_maxeval(200)
+        
+        # find minimizer
+        VR = opt.optimize(V0R)
+        
+    # Store solution of the problem  max ((V^H Q V)/(V^H Qvop V))
+    R = SAR(QR,VR) / SAR(QvopR,VR) - 1;
+    V = VR[0:Nc] + 1j * VR[Nc:2*Nc];
 
     return (R,V)
 
@@ -94,38 +82,13 @@ def objfun(Q, V, G) :
 
 # Constraints
 
-def VopConstr(Q,C,V,G) :
+def constrfun(lQ,C,V,G) :
     
     Vt = V.transpose();
     
-    if (Q.ndim<3):
-        P = Vt @ Q;
-        C[0] = P @ V - 1;
-        G[:,0] = 2 * P;
-    else :
-        for i in range(0,Q.shape[2]) :
-            
-            P = Vt @ Q[:,:,i];
-            C[i] = P @ V - 1;
-            G[i,:] = 2*P;
-    
-# Evaluation of V^H Q V
- 
-def evalSAR(Q, V):
-    
-    Vt = V.transpose();
-    
-    if (Q.ndim<3):
-        P = Vt @ Q;
-        return P @ V;
+    for i,Q in zip(range(0,len(lQ)),lQ) :
         
-    else :
-        
-        C = 0;
-        
-        for i in range(0,Q.shape[2]) :
-            
-            P = Vt @ Q[:,:,i];
-            C = np.max((C, P @ V));
-            
-    return C
+        P = Vt @ lQ[i];
+        C[i] = P @ V - 1;
+        G[i,:] = 2*P;
+

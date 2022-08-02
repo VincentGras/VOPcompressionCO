@@ -1,4 +1,4 @@
-function [Qvop,c] = computeVOP_iCO(criterion, Q, Qmargin, niter, r)
+function [c, Qvop] = computeVOP_General_iCO(metric, Q, Qmargin, niter, r, QvopExt)
 
 % VOP computation: iterative CO approach
 % Input :
@@ -12,6 +12,14 @@ function [Qvop,c] = computeVOP_iCO(criterion, Q, Qmargin, niter, r)
 
 Nc = size(Q, 1);
 S = spectralNorm(Q);
+
+% External set of VOPs
+
+if (nargin < 6)
+    QvopExt = zeros(Nc,Nc,0);
+end
+
+% Qmargin update factor
 
 if (nargin < 5)
     % default r
@@ -49,23 +57,10 @@ c(:) = nyc;
 % iterate
 for i = 1:niter
     % update classification
-    [Qvop, c] = computeVOP_General_CO(criterion, Q, S, Qm, c);
+    [c, Qvop] = computeVOP_General_CO(metric, Q, S, Qm, c, QvopExt);
     fprintf('Nb of VOP after iteration %d/%d = %d; (margin = %.1e)\n', i, niter, nnz(c), norm(Qm));
     % Decrease VOP compression margin
     Qm = Qm * r;
     % Update c
     c(c==dominated)=nyc;
 end
-
-
-function [SARwc] = maxSpectralNorm(Q)
-
-N = size(Q, 3); 
-
-SARwc = zeros(N,1);
-
-parfor i = 1:N
-    SARwc(i) = norm(Q(:,:,i), 2);
-end
-
-SARwc = max(SARwc);

@@ -8,103 +8,88 @@ Created on Fri Jun 17 10:27:00 2022
 import numpy as np
 from  testQmatrixDomination_CO import testQmatrixDomination_CO
 
-def computeVOP_CO__mp(pool, Q10g, Qmargin, Qvop=np.ndarray((0))):
+def computeVOP_CO__mp(pool, lQ, Qmargin, c0=np.ndarray((0),dtype='uint8')):
     
     # compute VOP using convex optimization (CO)
     # input :
     #    pool : multiprocessing object
-    #    Q10g : NcxNxN ndarray   the 10g-SAR matrices
-    #    Qmargin : NxxNc ndarray  compression margin
-    #    Qvop : NcxNcxNvopInit initial VOPs (empty by default)
+    #    lQ :    list (length N) of NcxNc Hermitian matrices :   the 10g-SAR matrices
+    #    Qmargin : NcxNc Hermitian matrix  : compression margin
+    #    c0 :   list of integers  : initial classification (empty by default)
     # output :
-    #   Qvop : NcxNcxNvop ndarray  the VOPs
-    #   c    : SAR matrix classification (c(i)=1 if Q(:,:,i) is a VOP, 0 otherwise)
-    #   Note that each added VOP is of the form Q(:,:,i)+Qmargin
+    #    c   :   list (length N) of integers : output classification
     
-    import numpy as np
+    # Number of SAR matrices
+    N = len(lQ);
     
-    # Matric Dimension
-    Nc = Q10g.shape[0];
-    assert Q10g.shape[1]==Nc, 'Q10g : expecting square matrices'    
+    if N==0:
+        c = []
+        return
     
-    # Number of SA matrices
-    N = 1;
+    # Matrix Dimension
+    Nc = lQ[0].shape[0];
     
-    if (Q10g.ndim>2) :
-        N = Q10g.shape[2];
-    else :
-        Q10g = Q10g.reshape((Nc, Nc, 1));
-        
+    for Q in lQ:
+        assert Q.ndim == 2 and Q.shape[0]==Nc and Q.shape[1]==Nc, 'lQ : expecting list of square matrices'    
+               
     # Classification
-    c = np.zeros(N, 'int8');
-    nyc = 2;
-    dominated = 0;
-    vop = 1;
-    c[:] = nyc;
+    c = np.zeros(N, dtype='uint8');
+    nyc = np.uint8(2);
+    dominated = np.uint8(0);
+    vop = np.uint8(1);
     
-    # R values that are computed on each SAR matrix for VOP decision
-    R = np.zeros(N);
-    R[:] = np.Inf;
+    if (c0.size>0):
+        assert c0.size==N, 'Bad c0 (does not match Q10g 3rd dim)'
+        c[:] = c0[:];
+    else:
+        c[:] = nyc;
     
-    if (Qvop.size>0):
-        
-        assert Qvop.shape[0] == Nc, 'Bad Qvop (does not match Q10g in shape)'
-        assert Qvop.shape[1] == Nc, 'Bad Qvop (does not match Q10g in shape)'
-        assert Qvop.ndim <= 3, 'Bad Qvop shape (must be 2 or 3)'        
+           
+    # initialize Qvop
+    Qvop = [];
+    for Q in lQ:
+        Qvop.append(Q+Qmargin);
+
     
-        if (Qvop.ndim==2):
-            Qvop = Qvop.reshape((Nc,Nc,1));
-    
-       
     remain = N;
     
     while (remain>0) :
         
         print('%d new VOPs / %d Q-matrices / %d to test still' % (np.sum(c==vop), N, remain));
         
-        # List Q10g matrices that are not yet classified 
-        J = np.nonzero(c==nyc);
-        Qs = [];
-        if (Q10g.ndim>2) :
-            for j in J[0]:
-                Qs.append(Q10g[:,:,j]);
+        # List SAR matrices that are not yet classified 
+        J = list(np.nonzero(c==nyc)[0]);
+        
+        if (len(Qvop)==0):
+            R = pool.starmap(testQmatrixDomination_CO, [(lQ[j],[Qmargin]) for j in J]);
         else:
-            Qs.append(Q10g);
+            R = pool.starmap(testQmatrixDomination_CO, [(lQ[j],Qvop) for j in J]);
         
-        # run convex optimization
-        if (Qvop.size <= 0):
-            res_mp = pool.starmap(testQmatrixDomination_CO, [(Q,Qmargin) for Q in Qs]);
-        else :
-            res_mp = pool.starmap(testQmatrixDomination_CO, [(Q,Qvop) for Q in Qs]);
-       
-        # Classifiy
-        rmax = 0;
-        k = N+1;
+        rmax=0;
+        jmax=-1;
         
-        for (res, j) in zip(res_mp, J[0]):
-            R[j] = res[0];
+        for j,r in zip(J,R):
             
-            if (R[j]>rmax):
-                rmax=R[j];
-                k=j;
-            
-            if (R[j] <= 1):
-                c[j] = dominated;
+            if (r<=1):
+                
+                c[j]=dominated;
                 remain = remain - 1;
-           
-        if (rmax > 1) :
-            c[k] = vop;
+                
+            elif r>rmax:
+                
+                jmax=j;
+                rmax=r;
+                
+        # if rmax>0, mark as new vop the SAR matrix that realizes the max 
+        
+        if (rmax>0):
+            
+            c[jmax] = vop; 
+            Qvop.append (lQ[jmax]) + Qmargin;
             remain = remain - 1;
+       
         
-        if Qvop.size == 0 :
-            Qvop = Q10g[:,:,k] + Qmargin;
-            Qvop = Qvop.reshape((Nc,Nc,1));
-        else:
-            newQvop = Q10g[:,:,k]+Qmargin;
-            Qvop = np.concatenate( (newQvop.reshape((Nc,Nc,1)), Qvop), 2);
-        
-    
     print('%d new VOPs / %d Q-matrices' % (np.sum(c==vop), N));        
     
-    return Qvop,c;   
+    return c   
 

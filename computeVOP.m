@@ -1,10 +1,9 @@
-function [c, Qvop] = computeVOP_General_CO(metric, Q, S, Qmargin, c, QvopExt)
+function [c, Qvop] = computeVOP(metric, Q, Qmargin, c, QvopExt)
 
 % Compute a set of VOPs using the CO method
 % Input:
 %   criterion   function handle (ex: @(R,J) R(J))
 %   Q       NcxNcxN complex Hermitian>0 ( or [] )
-%   S       1xN or Nx1   ||Q(:,:,i)||_2 for 1<= i <= N  
 %   Qmargin NcxNcx1 complex Hermitian>0 (or positive scalar) : the
 %              compression margin
 %   c       1xN integer ( or [] )  initial classification
@@ -22,7 +21,7 @@ N = size(Q, 3);
 
 % External set of VOPs
 
-if (nargin < 6)
+if (nargin < 5)
     QvopExt = zeros(Nc,Nc,0);
 end
 
@@ -30,7 +29,7 @@ end
 
 [nyc, vop, dominated] = computeVOP_classif_code();
 
-if (nargin < 5 || isempty(c))
+if (nargin < 4 || isempty(c))
     % initialize c as nyc (not yet classified)
     c = zeros(1,N);
     c(:) = nyc;
@@ -39,16 +38,13 @@ end
 assert(ndims(c) <= 2 && numel(c) == N, 'Bad input c');
 
 
-% ||Q(:,:,i)||, 1<= i <= N
-if (nargin < 3 || isempty(S))
-    S = spectralNorm(Q);
-end
+S = spectralNorm(Q);
 
 assert(ndims(S)<= 2 && numel(S) == N, 'Bad input S');
 
 % VOP compression margin 
 
-if (nargin < 4 || isempty(Qmargin))
+if (nargin < 3 || isempty(Qmargin))
     Qmargin = eye(Nc)*(0.05*max(S));
 end
 
@@ -57,7 +53,7 @@ if (isscalar(Qmargin))
 end
 
 % initialize R as inf
-R = zeros(1,N) + inf;
+M = zeros(1,N) + inf;
 
 % initialize Qvop
 
@@ -67,8 +63,6 @@ if (isempty(Qvop) && isempty(QvopExt))
     Qvop = Qmargin;
 end
     
-
-
 % loop
 
 remain = nnz(c==nyc);
@@ -80,16 +74,16 @@ while (remain > 0)
     J = find(c == nyc);
     
     % compute R on the nyc SAR matrices
-    R(J) = metric(Q(:,:,J), cat(3, Qvop, QvopExt));
+    M(J) = metric(Q(:,:,J), cat(3, Qvop, QvopExt));
     %R_ = testQmatrixDomination_CHO(Q(:,:,J), cat(3, Qvop, QvopExt));
-    max(R(J))
+
     % mark as 'dominated' the matrices for which Rmax < 1
-    c(J(R(J)<=1)) = dominated;
+    c(J(M(J)>=0)) = dominated;
     J = find(c == nyc);
     
     % if  max(R)>1, mark as new vop the SAR matrix that realizes the max 
     if (~isempty(J))
-        [~,k] = max(R(J));
+        [~,k] = min(M(J));
         c(J(k)) = vop; 
         Qvop = Q(:,:,c==vop) + Qmargin;
         remain = numel(J) - 1;
