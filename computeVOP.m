@@ -53,7 +53,7 @@ if (isscalar(Qmargin))
 end
 
 % initialize R as inf
-M = zeros(1,N) + inf;
+R = zeros(1,N) + inf;
 
 % initialize Qvop
 
@@ -74,16 +74,16 @@ while (remain > 0)
     J = find(c == nyc);
     
     % compute R on the nyc SAR matrices
-    M(J) = metric(Q(:,:,J), cat(3, Qvop, QvopExt));
+    R(J) = metric(Q(:,:,J), cat(3, Qvop, QvopExt));
     %R_ = testQmatrixDomination_CHO(Q(:,:,J), cat(3, Qvop, QvopExt));
 
     % mark as 'dominated' the matrices for which Rmax < 1
-    c(J(M(J)>=0)) = dominated;
+    c(J(R(J)<=1)) = dominated;
     J = find(c == nyc);
     
     % if  max(R)>1, mark as new vop the SAR matrix that realizes the max 
     if (~isempty(J))
-        [~,k] = min(M(J));
+        [~,k] = max(R(J));
         c(J(k)) = vop; 
         Qvop = Q(:,:,c==vop) + Qmargin;
         remain = numel(J) - 1;
