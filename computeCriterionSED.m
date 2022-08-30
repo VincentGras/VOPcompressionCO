@@ -35,7 +35,7 @@ else
         else
             
             Xi = chol(Qi + (1e-3*norm(Qi))*eye(Nc), 'lower');
-            Xi =  sqrt(0.5 / (SED(Qvop, x0)+eps))* Xi;
+            Xi =  sqrt(0.5 / (SED(Qvop, Xi)+eps))* Xi;
             Xi(I) = fmincon(@(x) objfun(Qi,x, I, J), Xi(I), [], [], [], [], [], [], @(x) constrfun(Qvop, x, I, J), opt);
             
         end
