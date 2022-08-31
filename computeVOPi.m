@@ -1,14 +1,7 @@
-function [c, Qvop] = computeVOP_General_iCO(metric, Q, Qmargin, niter, r, QvopExt)
+function [c, Qvop] = computeVOPi(metric, Q, Qmargin, niter, r, QvopExt)
 
 % VOP computation: iterative CO approach
-% Input :
-%   criterion       function handle @(R,S) R or @(R,S) S
-%   Q               NcxNcxN complex Hermitian>0
-%   margin          scalar > 0 : desired margin (default = 0.01 max_Q(||Q||_2))
-%   niter           integer    : number of iterations (default = 4)
-%   r               scalar (0<r<1) : margin update factor (default = 0.6)
-% Output :
-% same as computeVOP_CO
+
 
 Nc = size(Q, 1);
 S = spectralNorm(Q);
@@ -57,7 +50,7 @@ c(:) = nyc;
 % iterate
 for i = 1:niter
     % update classification
-    [c, Qvop] = computeVOP_General_CO(metric, Q, S, Qm, c, QvopExt);
+    [c, Qvop] = computeVOP(metric, Q, S, Qm, c, QvopExt);
     fprintf('Nb of VOP after iteration %d/%d = %d; (margin = %.1e)\n', i, niter, nnz(c), norm(Qm));
     % Decrease VOP compression margin
     Qm = Qm * r;
