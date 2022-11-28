@@ -1,4 +1,4 @@
-function [c, Qvop] = computeVOPi(metric, Q, Qmargin, niter, r, QvopExt)
+function [c, Qvop, Qmargin_i, ct] = computeVOPi(metric, Q, QmarginInitial, niter, r, max_vop_nb, QvopBase)
 
 % VOP computation: iterative CO approach
 
@@ -8,8 +8,14 @@ S = spectralNorm(Q);
 
 % External set of VOPs
 
+if (nargin < 7)
+    QvopBase = zeros(Nc,Nc,0);
+end
+
+% max nb of VOPs
+
 if (nargin < 6)
-    QvopExt = zeros(Nc,Nc,0);
+    max_vop_nb = inf;
 end
 
 % Qmargin update factor
@@ -26,34 +32,49 @@ if (nargin < 4)
 end
 
 if (nargin < 3)
-    % set default margin to 0.01 max_Q(||Q||_2)
-    Qmargin = max(S) * 0.05 * eye(Nc);
+    % set default initial margin to 0.5 max_Q(||Q||_2)
+    QmarginInitial = max(S) * 0.5 * eye(Nc);
 end
 
-if (isscalar(Qmargin))
-    Qmargin = Qmargin * eye(Nc);
+if (isscalar(QmarginInitial))
+    QmarginInitial = QmarginInitial * eye(Nc);
 end
-
-% intialize Qvop to []
-Qvop = [];
 
 % initialize VOP compression margin
-Qm = Qmargin / (r^(niter-1));
-fprintf('Initial margin = %.1e\n', norm(Qm));
+Qmargin_i = QmarginInitial;
 
-% initialize c
-[nyc, ~, dominated] = computeVOP_classif_code();
-c = zeros(1, size(Q, 3));
-c(:) = nyc;
+% initialize VOP classif
+[nyc, vop, dominated] = computeVOP_classif_code();
+c_i = zeros(1, size(Q, 3)) + nyc;
 
+% prepare storage for VOP classif and VOP list at each iteration
+c = zeros(niter, size(Q, 3));
+Qvop = cell(niter, 1);
+Qmargin = cell(niter, 1);
+
+% ct
+
+ct = zeros(niter, 1);
+
+tic;
 
 % iterate
 for i = 1:niter
     % update classification
-    [c, Qvop] = computeVOP(metric, Q, S, Qm, c, QvopExt);
-    fprintf('Nb of VOP after iteration %d/%d = %d; (margin = %.1e)\n', i, niter, nnz(c), norm(Qm));
+    Qmargin{i} = Qmargin;
+    [c_i, Qvop{i}] = computeVOP(metric, Q, Qmargin_i, c_i, QvopBase);
+    ct(i) = toc;
+    c(i,:) = c_i;
+    fprintf('Nb of VOP after iteration %d/%d = %d; (margin = %.1e)\n', i, niter, nnz(c_i), norm(Qmargin_i));
+    
+    if (nnz(c_i==vop) > max_vop_nb)
+        fprintf('Stopping at iteration #%d as te nb of vops exceeds %d !', i, max_vop_nb);
+        break;
+    end
+    
     % Decrease VOP compression margin
-    Qm = Qm * r;
+    Qmargin_i = Qmargin_i * r;
+    
     % Update c
-    c(c==dominated)=nyc;
+    c_i(c_i==dominated)=nyc;
 end

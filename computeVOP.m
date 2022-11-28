@@ -1,4 +1,4 @@
-function [c, Qvop] = computeVOP(metric, Q, Qmargin, c, QvopExt)
+function [c, Qvop] = computeVOP(metric, Q, Qmargin, c, QvopBase)
 
 % Compute a set of VOPs using the CO method
 % Input:
@@ -22,7 +22,7 @@ N = size(Q, 3);
 % External set of VOPs
 
 if (nargin < 5)
-    QvopExt = zeros(Nc,Nc,0);
+    QvopBase = zeros(Nc,Nc,0);
 end
 
 % classif
@@ -37,14 +37,10 @@ end
 
 assert(ndims(c) <= 2 && numel(c) == N, 'Bad input c');
 
-
-S = spectralNorm(Q);
-
-assert(ndims(S)<= 2 && numel(S) == N, 'Bad input S');
-
 % VOP compression margin 
 
 if (nargin < 3 || isempty(Qmargin))
+    S = spectralNorm(Q);
     Qmargin = eye(Nc)*(0.05*max(S));
 end
 
@@ -59,7 +55,7 @@ R = zeros(1,N) + inf;
 
 Qvop = Q(:,:,c==vop) + Qmargin;
 
-if (isempty(Qvop) && isempty(QvopExt))
+if (isempty(Qvop) && isempty(QvopBase))
     Qvop = Qmargin;
 end
     
@@ -74,7 +70,7 @@ while (remain > 0)
     J = find(c == nyc);
     
     % compute R on the nyc SAR matrices
-    R(J) = metric(Q(:,:,J), cat(3, Qvop, QvopExt));
+    R(J) = metric(Q(:,:,J), cat(3, Qvop, QvopBase));
     %R_ = testQmatrixDomination_CHO(Q(:,:,J), cat(3, Qvop, QvopExt));
 
     % mark as 'dominated' the matrices for which Rmax < 1

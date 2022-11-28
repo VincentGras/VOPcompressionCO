@@ -1,4 +1,8 @@
-function [CSED, X] = computeCriterionSED(Q, Qvop)
+function [CSED, X] = computeCriterionSED(Q, Qvop, optimalityTolerance)
+
+if (nargin < 3)
+    optimalityTolerance = 1e-6;
+end
 
 Nc = size(Qvop, 1);
 N = size(Q, 3);
@@ -6,8 +10,8 @@ N = size(Q, 3);
 if (~isreal(Q) || ~isreal(Qvop))
     
     CHtoRS = @(Q) cat(1, cat(2, real(Q), -imag(Q)), cat(2, imag(Q), real(Q)));
-    [CSED, xr] = computeCriterionSED(CHtoRS(Q), CHtoRS(Qvop));
-    X = xr(1:Nc,1:Nc,:) + 1i * xr(1:Nc, Nc+1:2*Nc, :);
+    [CSED, xr] = computeCriterionSED(CHtoRS(Q), CHtoRS(Qvop), optimalityTolerance);
+    X = xr(1:Nc,1:Nc,:) + 1i * xr(1+Nc:2*Nc, 1:Nc, :);
     
 else
     
@@ -16,9 +20,8 @@ else
     
     [I,J] = indexing(Nc);
     
-    opt = optimset('Algorithm', 'sqp', 'MaxIter', 1000,  'Display', 'off', 'GradObj', 'on', 'GradConstr', 'on');
     
-    parfor i = 1:N
+   parfor i = 1:N
         
         Qi = double(Q(:,:,i));
         Qi = 0.5*(Qi+Qi');
@@ -33,17 +36,24 @@ else
             Xi(:,1) = real(eigV(:,k));
             
         else
-            
             Xi = chol(Qi + (1e-3*norm(Qi))*eye(Nc), 'lower');
-            Xi =  sqrt(0.5 / (SED(Qvop, Xi)+eps))* Xi;
-            Xi(I) = fmincon(@(x) objfun(Qi,x, I, J), Xi(I), [], [], [], [], [], [], @(x) constrfun(Qvop, x, I, J), opt);
+            Xi =  sqrt(0.5 / (SED(Qvop, Xi)+eps))* Xi;   
+            opt = optimoptions(@fmincon, 'Algorithm', 'interior-point', ...
+                'MaxIter', 1000,  'Display', 'off', ...
+                'GradObj', 'on', 'GradConstr', 'on', ...
+                'OptimalityTolerance', optimalityTolerance, ...
+                'StepTolerance', 1e-10, ...
+                'FunctionTolerance', 1e-6, ...
+                'HessianFcn', @(x,lambda) HessianFcn(Qi, Qvop, x, I, J, lambda));
+
+            [Xi(I), fval, exitflag, output]  = fmincon(@(x) objfun(Qi,x, I, J), Xi(I), [], [], [], [], [], [], @(x) constrfun(Qvop, x, I, J), opt);
             
         end
         
         X(:,:,i) = Xi;
         CSED(i) = SED(Qi,X(:,:,i))/SED(Qvop,X(:,:,i));
         
-        if (mod(i,1000)== 0)
+        if (mod(i,1000) == 1)
             fprintf('parfor loop : %d / %d; %f\n', i, N, CSED(i));
         end
         
@@ -75,21 +85,28 @@ n = size(J, 1);
 V = zeros(n);
 V(I) = U;
 W = V*V';
-V = sparse(V);
+%V = sparse(V);
 
 C = -trace(W * Q);
 G = zeros(size(U));
 
 % deriver V par rapport aux variables
 
-for k = 1:numel(U)
+% for k = 1:numel(U)
+% 
+%     i = mod(I(k)-1, n)+1;
+%     j = 1+(I(k)-i)/n;
+%     G(k) = -2 * Q(i,:)*V(:,j);
+%     
+% end
 
-    i = mod(I(k)-1, n)+1;
-    j = 1+(I(k)-i)/n;
-    G(k) = -2 * Q(i,:)*V(:,j);
+A = cumsum([0, n:-1:1]);
+
+for j = 1:n
+  
+  G(A(j)+1:A(j+1)) = -2 * Q(j:n, :) * V(:, j);
     
 end
-
 
 
 function [C,Ceq, G, Geq] = constrfun(Q,U,I, J)
@@ -110,17 +127,53 @@ end
 
 G = zeros(numel(U),size(Q,3));
 
-li = mod(I-1, n)+1;
-co = 1+(I-li)/n;
+% li = mod(I-1, n)+1;
+% co = 1+(I-li)/n;
+% 
+% for m = 1:size(Q,3)
+%     for k = 1:numel(U)
+%         G(k,m) = 2 *  Q(li(k),:,m)*V(:,co(k));
+%     end
+% end
 
-for m = 1:size(Q,3)
-    for k = 1:numel(U)
-        G(k,m) = 2 *  Q(li(k),:,m)*V(:,co(k));
-    end
+A = cumsum([0, n:-1:1]);
+
+% for m = 1:size(Q,3)
+%     for j = 1:n
+%         G(A(j)+1:A(j+1),m) = 2 * Q(j:n,:,m)*V(:,j);
+%     end
+% end
+
+for j = 1:n
+    G(A(j)+1:A(j+1),:) = 2 * pagemtimes(Q(j:n,:,:), V(:,j));
 end
 
 
+function H = HessianFcn(Q, Qvop, U, I, J, lambda)
 
+p = numel(U);
+n = size(J, 1);
+H = zeros(p, p);
+
+%Iinv = zeros(n*n, 1);
+%Iinv(I) = 1:p;
+
+A = cumsum([0, n:-1:1]);
+
+% deriver V par rapport aux variables
+
+lam = reshape(lambda.ineqnonlin, 1, 1, size(Qvop, 3));
+Qvopxlam = sum(Qvop .* lam, 3);
+
+for iH = 1:numel(U)
+
+    iQ = mod(I(iH)-1, n) + 1;
+    jQ = I(iH) - iQ;
+    iA = 1 + jQ / n;
+    jH = A(iA)+1:A(iA+1);
+    h_ = -2 * Q(iQ, I(jH) - jQ) + 2 * Qvopxlam(iQ, I(jH) - jQ); 
+    H(iH, jH) = h_;
+end
 
 
 
@@ -131,25 +184,4 @@ W = V*V';
 for i = 1:size(Q,3)
     val = max(trace(W*Q(:,:,i)),val); 
 end
-
-
-% function [C, G] = objfunMarginSAR(Q, V)
-% C = -V' * Q * V;
-% G = -2 * Q * V;
-% 
-% function [C,Ceq,G,Geq] = constrfunMarginSAR(Q,V)
-% 
-% Ceq = [];
-% C = reshape(pagemtimes(V, 'transpose', pagemtimes(Q, V), 'none'), size(Q, 3), 1) - 1;
-% Geq = [];
-% G = 2 * reshape(pagemtimes(Q, V), numel(V), size(Q, 3));
-% 
-% function val = SAR(Q,V)
-% val = pagemtimes(V, 'transpose', pagemtimes(Q, V), 'none');
-% val = max(val, [], 'all');
-% val = max(val, 0);%for numerical stability
-% 
-
-
-
 
