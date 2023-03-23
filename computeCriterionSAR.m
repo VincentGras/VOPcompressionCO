@@ -1,7 +1,7 @@
-function [CSAR, x] = computeCriterionSAR(Q, Qvop, optimalityTolerance)
+function [CSAR, x] = computeCriterionSAR(Q, Qvop, TolX)
 
 if (nargin < 3)
-    optimalityTolerance = 1e-6;
+    TolX = [];
 end
 
 Nc = size(Qvop, 1);
@@ -10,7 +10,7 @@ N = size(Q, 3);
 if (~isreal(Q) || ~isreal(Qvop))
     
     CHtoRS = @(Q) cat(1, cat(2, real(Q), -imag(Q)), cat(2, imag(Q), real(Q)));
-    [CSAR, xr] = computeCriterionSAR(CHtoRS(Q), CHtoRS(Qvop), optimalityTolerance);
+    [CSAR, xr] = computeCriterionSAR(CHtoRS(Q), CHtoRS(Qvop), TolX);
     x = xr(1:Nc,:) + 1i * xr(Nc+1:2*Nc, :);
     
 else
@@ -23,7 +23,7 @@ else
         Qi = double(Q(:,:,i));
         Qi = 0.5*(Qi+Qi');
         
-        if (size(Qvop, 3)==1)
+        if (size(Qvop, 3) == 1)
             
             [eigV, eigD] = eig(Qi-Qvop, 'vector');
             eigD = real(eigD);
@@ -38,10 +38,8 @@ else
             x0 = real(eigV(:,k));
             x0 = sqrt(0.5 / (SAR(Qvop, x0)+eps))*x0;
             
-            opt = optimoptions(@fmincon, 'Algorithm', 'interior-point', 'MaxIter', 1000, ...
-                'Display', 'off', 'GradObj', 'on', 'GradConstr', 'on', ...
-                'HessianFcn', @(x,lambda) HessianFcn(Qi, Qvop, x, lambda), ...
-                'OptimalityTolerance', optimalityTolerance); 
+            opt = optimset('Algorithm', 'sqp', 'MaxIter', 1000, ...
+                'Display', 'off', 'GradObj', 'on', 'GradConstr', 'on', 'TolX', TolX);
             
             x(:,i) = fmincon(@(x) objfun(Qi,x), x0, [], [], [], [], [], [], @(x) constrfun(Qvop, x), opt);
             
