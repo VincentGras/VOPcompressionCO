@@ -4,8 +4,12 @@ function [c, Qvop, X] = computeVOP_CO(Q, S, X, Qmargin, c, QvopBase)
 % Input:
 %   criterion   function handle (ex: @(R,J) R(J))
 %   Q       NcxNcxN complex Hermitian>0 ( or [] )
-%   S
-%   X
+%   S       Spectral norm of the Q matrices
+%           If [], S is computed internally
+%           !! If not [], it is assumed that S is sorted (and Q accordingly)
+%   X       Nc x N array
+%           First guess for the vector X maximazing the domination
+%           criterion
 %   Qmargin NcxNcx1 complex Hermitian>0 (or positive scalar) : the
 %              compression margin
 %   c       1xN integer ( or [] )  initial classification
@@ -14,7 +18,7 @@ function [c, Qvop, X] = computeVOP_CO(Q, S, X, Qmargin, c, QvopBase)
 %   Qvop    Updated set of VOPs, if Qvop is provided and Q <= Qvop (combined domination), then Qvop left unchanged
 %           Note that any added VOP will be of the form Q(:,:,i) + Qmargin
 %           for some i in {1,...,N}
-
+%   X       argmax of the domination criterion
 %
 %     CHtoRS = @(Q) cat(1, cat(2, real(Q), -imag(Q)), cat(2, imag(Q), real(Q)));
 %     [CSAR, xr] = RQstar(CHtoRS(Q), [real(x); imag(x)], CHtoRS(Qvop), optimalityTolerance);
@@ -28,7 +32,7 @@ Nc = size(Q, 1);
 if (~isreal(Q))
     % transform to symmetric Hermitian and recursive call
     CHtoRS = @(Q) cat(1, cat(2, real(Q), -imag(Q)), cat(2, imag(Q), real(Q)));
-    [c, Qvop, X] = computeVOP_CO(Q, S, [real(X); imag(X)], CHtoRS(Qmargin), c, QvopBase);
+    [c, Qvop, X] = computeVOP_CO(CHtoRS(Q), S, [real(X); imag(X)], CHtoRS(Qmargin), c, QvopBase);
     X = X(1:Nc,:) + 1i * X(Nc+1:2*Nc, :);
     Qvop = Qvop(1:Nc, 1:Nc, :) + 1i * Qvop(Nc+1:2*Nc, 1:Nc, :);
     return;
@@ -86,7 +90,9 @@ R = zeros(1,N) + inf;
 Qvop = Q(:,:,c==vop) + Qmargin;
 
 if (isempty(Qvop) && isempty(QvopBase))
-    Qvop = Qmargin;
+    % add first Q matrix (the one with the highest spectral norm)
+    c(1) = vop;
+    Qvop = Q(:,:,1) + Qmargin;
 end
 
 % loop
@@ -100,13 +106,12 @@ while (remain > 0)
     J = find(c == nyc);
     
     % compute R on the nyc SAR matrices
-    [R(J), X(:, J)] = RQstar(Q(:,:,J), X(:, J), cat(3, Qvop, QvopBase));
-    %R_ = testQmatrixDomination_CHO(Q(:,:,J), cat(3, Qvop, QvopExt));
+    [R(J), X(:, J)] = rQstar(Q(:,:,J), cat(3, Qvop, QvopBase), true, X(:, J));
     
     % mark as 'dominated' the matrices for which Rmax < 1
     c(J(R(J)<=1)) = dominated;
     J = find(c == nyc);
-    
+   
     % if  max(R)>1, mark as new vop the SAR matrix that realizes the max
     if (~isempty(J))
         %[~,k] = max(R(J));
@@ -121,79 +126,4 @@ while (remain > 0)
 end
 
 fprintf('%d VOPs / %d Q-matrices \n', size(Qvop, 3), N);
-
-function [CSAR, X] = RQstar(Q, X, Qvop)
-
-Nc = size(Qvop, 1);
-N = size(Q, 3);
-
-assert(isreal(Q), 'Q must be real');
-assert(isreal(Qvop), 'Qvop must be real');
-
-% x = zeros(Nc, N);
-CSAR = zeros(1, N);
-
-parfor i = 1:N
-    
-    Qi = double(Q(:,:,i));
-    Qi = 0.5*(Qi+Qi');
-    
-    X0 = X(:,i);
-    
-    if (all(X0 == 0))
-        [eigV, eigD] = eig(Qi - Qvop(:, :, 1), 'vector');
-        eigD = real(eigD);
-        [~, k] = max(eigD);
-        X0 = real(eigV(:,k));
-    end
-    
-    X0 = sqrt( 1.0 / (SAR(Qvop, X0) + eps)) * X0;
-    
-    %         opt = optimset('Algorithm', 'interior-point', 'MaxIter', 1000, ...
-    %             'Display', 'off', 'GradObj', 'on', 'GradConstr', 'on', ...
-    %             'HessFcn', @(x,lambda) HessianFcn(Qi, Qvop, x, lambda), ...
-    %             'OutputFcn', @stopCriterion);
-    
-    opt = optimset('Algorithm', 'sqp', 'MaxIter', 1000, ...
-        'Display', 'off', 'GradObj', 'on', 'GradConstr', 'on', ...
-        'OutputFcn', @stopCriterion);
-    
-    X(:,i) = fmincon(@(x) objfun(Qi,x), X0, [], [], [], [], [], [], @(x) constrfun(Qvop, x), opt);
-    
-    CSAR(i) = SAR(Qi,X(:,i))./SAR(Qvop,X(:,i));
-    
-    if (mod(i,1000)== 0)
-        fprintf('parfor loop : %d / %d; %f\n', i, N, CSAR(i));
-    end
-    
-    
-end
-
-function val = SAR(Q,V)
-val = pagemtimes(V, 'transpose', pagemtimes(Q, V), 'none');
-val = max(val, [], 'all');
-val = max(val, 0);
-
-function [C, G] = objfun(Q, V)
-C = -V' * Q * V;
-G = -2 * Q * V;
-
-function [C,Ceq,G,Geq] = constrfun(Q,V)
-
-Ceq = [];
-C = reshape(pagemtimes(V, 'transpose', pagemtimes(Q, V), 'none'), size(Q, 3), 1) - 1;
-Geq = [];
-G = 2 * reshape(pagemtimes(Q, V), numel(V), size(Q, 3));
-
-function H = HessianFcn(Q, Qvop, V, lambda)
-
-H = -2 * Q;
-
-for c = 1:size(Qvop, 3)
-    H = H + 2 * lambda.ineqnonlin(c) * Qvop(:,:,c);
-end
-
-function stop = stopCriterion(x,optimValues,state)
-
-stop = optimValues.fval < -1;
 
