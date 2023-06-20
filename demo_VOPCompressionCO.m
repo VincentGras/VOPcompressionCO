@@ -1,13 +1,9 @@
-addpath CO
-
 load testQ.mat Q10g
 
 S = spectralNorm(Q10g);
-Smax = max(S);
-% Normalize to Smax (better for rQstar)
-Q10g = Q10g / Smax;
+Smax = max(S)
 
-Qmargin = 0.05 * eye(8);
+Qmargin = 0.05 * Smax * eye(8);
 
 %% CO
     
@@ -22,11 +18,6 @@ r = 0.8;
 Qvop2 = Qvop2{end};
 check = rQstar(Q10g, Qvop2);
 max(check)
-
-%% remove Smax scaling
-
-Qvop1 = Qvop1 * Smax;
-Qvop2 = Qvop2 * Smax;
 
 
 

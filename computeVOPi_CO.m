@@ -25,9 +25,9 @@ end
 assert(r>0 && r < 1, 'bad input parameter r, must be with the range ]0,1[');
 
 if (~isreal(Q))
-    % Convert complex Hermitian matrices into symmetric real matrices
-    % transform to symmetric Hermitian and recursive call
-    CHtoRS = @(Q) cat(1, cat(2, real(Q), -imag(Q)), cat(2, imag(Q), real(Q)));
+    % Convert complex Hermitian matrices into symmetric real matrices and recusrsive call														   
+    assert(isreal(QmarginInitial), 'Q is real but not QmarginInitial');
+    assert(isreal(QvopInitial), 'Q is real but not QvopBase');
     Q = CHtoRS(Q);
     if ~isempty(QmarginInitial) && ~isscalar(QmarginInitial)
         QmarginInitial = CHtoRS(QmarginInitial);
@@ -106,7 +106,7 @@ if (iter < max_iter)
     %ct = ct(1:niter);
 end
 
-% inverse permutation
+% apply inverse permutation
 invp = 1:numel(p); 
 invp(p)=invp;
 c = c(:, invp);

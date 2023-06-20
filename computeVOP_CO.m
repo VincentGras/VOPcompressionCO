@@ -1,4 +1,4 @@
-function [c, Qvop, X] = computeVOP_CO(Q, S, X, Qmargin, c, QvopBase)
+function [c, Qvop, X] = computeVOP_CO(Q, S, X, Qmargin, c, QvopInitial)
 
 % Compute a set of VOPs using the CO method
 % Input:
@@ -30,9 +30,13 @@ function [c, Qvop, X] = computeVOP_CO(Q, S, X, Qmargin, c, QvopBase)
 Nc = size(Q, 1);
 
 if (~isreal(Q))
+    assert(isreal(Qmargin), 'Q is real but not QmarginInitial');
+    assert(isreal(QvopInitial), 'Q is real but not QvopBase');
     % transform to symmetric Hermitian and recursive call
-    CHtoRS = @(Q) cat(1, cat(2, real(Q), -imag(Q)), cat(2, imag(Q), real(Q)));
-    [c, Qvop, X] = computeVOP_CO(CHtoRS(Q), S, [real(X); imag(X)], CHtoRS(Qmargin), c, QvopBase);
+    if (~isscalar(Qmargin))
+        Qmargin = CHtoRS(Qmargin);
+    end
+    [c, Qvop, X] = computeVOP_CO(CHtoRS(Q), S, [real(X); imag(X)], Qmargin, c, QvopInitial);
     X = X(1:Nc,:) + 1i * X(Nc+1:2*Nc, :);
     Qvop = Qvop(1:Nc, 1:Nc, :) + 1i * Qvop(Nc+1:2*Nc, 1:Nc, :);
     return;
@@ -47,8 +51,8 @@ end
 
 % External set of VOPs
 
-if (isempty(QvopBase))
-    QvopBase = zeros(Nc,Nc,0);
+if (isempty(QvopInitial))
+    QvopInitial = zeros(Nc,Nc,0);
 end
 
 % sort matrices ?
@@ -89,7 +93,7 @@ R = zeros(1,N) + inf;
 
 Qvop = Q(:,:,c==vop) + Qmargin;
 
-if (isempty(Qvop) && isempty(QvopBase))
+if (isempty(Qvop) && isempty(QvopInitial))
     % add first Q matrix (the one with the highest spectral norm)
     c(1) = vop;
     Qvop = Q(:,:,1) + Qmargin;
@@ -106,7 +110,9 @@ while (remain > 0)
     J = find(c == nyc);
     
     % compute R on the nyc SAR matrices
-    [R(J), X(:, J)] = rQstar(Q(:,:,J), cat(3, Qvop, QvopBase), true, X(:, J));
+	% Note the noramlization to Smax (i.e. S(1) as S is sorted) 
+	% This is done to condition properly the numerical optimization
+    [R(J), X(:, J)] = rQstar(Q(:,:,J)/S(1), cat(3, Qvop, QvopInitial)/S(1), true, X(:, J));
     
     % mark as 'dominated' the matrices for which Rmax < 1
     c(J(R(J)<=1)) = dominated;
