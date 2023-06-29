@@ -107,7 +107,8 @@ if (iter < max_iter)
 end
 
 % apply inverse permutation
-invp = 1:numel(p); 
-invp(p)=invp;
-c = c(:, invp);
+c(:, p) = c(:, :);
+% invp = 1:numel(p); 
+% invp(p)=invp;
+% c = c(:, invp);
 

@@ -59,7 +59,11 @@ end
 
 if (isempty(S))
     S = spectralNorm(Q);
-    [S, p] = sort(S, 'descend');
+end
+
+p = [];
+if (any(diff(S) > 0))
+   [S, p] = sort(S, 'descend');
     Q = Q(:,:,p);
 end
 
@@ -128,6 +132,12 @@ while (remain > 0)
     else
         remain = 0;
     end
+    
+end
+
+if (~isempty(p))
+   
+    c(p) = c;
     
 end
 
